@@ -1,0 +1,308 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   <!--
+This HTML is auto-generated from an M-file.
+To make changes, update the M-file and republish this document.
+      --><title>Sparse_MNL_Regression</title><meta name="generator" content="MATLAB 7.10"><meta name="date" content="2011-01-10"><meta name="m-file" content="Sparse_MNL_Regression"><style type="text/css">
+
+body {
+  background-color: white;
+  margin:10px;
+}
+
+h1 {
+  color: #990000; 
+  font-size: x-large;
+}
+
+h2 {
+  color: #990000;
+  font-size: medium;
+}
+
+/* Make the text shrink to fit narrow windows, but not stretch too far in 
+wide windows. */ 
+p,h1,h2,div.content div {
+  max-width: 600px;
+  /* Hack for IE6 */
+  width: auto !important; width: 600px;
+}
+
+pre.codeinput {
+  background: #EEEEEE;
+  padding: 10px;
+}
+@media print {
+  pre.codeinput {word-wrap:break-word; width:100%;}
+} 
+
+span.keyword {color: #0000FF}
+span.comment {color: #228B22}
+span.string {color: #A020F0}
+span.untermstring {color: #B20000}
+span.syscmd {color: #B28C00}
+
+pre.codeoutput {
+  color: #666666;
+  padding: 10px;
+}
+
+pre.error {
+  color: red;
+}
+
+p.footer {
+  text-align: right;
+  font-size: xx-small;
+  font-weight: lighter;
+  font-style: italic;
+  color: gray;
+}
+
+  </style></head><body><div class="content"><h2>Contents</h2><div><ul><li><a href="#2">Sparse multinomial logistic regression</a></li><li><a href="#3">Setting up the initial variables</a></li><li><a href="#4">Precompute B matrix  etc</a></li><li><a href="#5">Main iteration {Component wise} ................................</a></li><li><a href="#7">likelihood</a></li></ul></div><pre class="codeinput"><span class="keyword">function</span> [prob,W, loglik]=Sparse_MNL_Regression(x,y,param)
+</pre><h2>Sparse multinomial logistic regression<a name="2"></a></h2><pre>     &lt; Hybrid (L1 and L2 ) regularization &gt;</pre><pre>[ INPUTS ]:
+X is an N-by-P design matrix:
+Y is an N-by-1 vecot of response: (1~K)
+r : regularization parametger
+         N: number of constraint (observation)
+         P: input feature dimension</pre><pre>[ Outputs ]:
+prob: predicted probability
+W:   Weights matrix</pre><pre>[ References] :
+       Krishnapurum  et.al.,    IEEE pattern anal &amp; Machine intell (2005)
+       Ryali et.al.,   Neuroimage (2010)
+       Le Cessie ;  J. R. Stat. Soc. C (1992)
+       G. Fort;       Bioinformatics (2005)
+       P. Green;   J. R. Stat. Soc. B (1984)
+       L. Shen;     IEEE/ACM. Comp. Biol. Bioinform. (2005)
+       J. Zhu;        Biostatistics (2004)
+       M. Park and Hastie;   Biostatistics (2008) 9,1, pp30-50
+       Cessie, S.;   Appl.Statist. (1992) 41, 191-201
+       Bull: 2002 ;   Comp stat and  Data analysis
+       Fox : Applied regression analysis and generalized linear models
+       (2008)
+       Bohning:   Ann.Inst. Statist. Math.  (1992) vol.44,  pp197-200
+       Cawlay, et.al,   Advances in neural information (2007)</pre><pre class="codeinput"><span class="comment">%          H.Oya (2010)</span>
+</pre><h2>Setting up the initial variables<a name="3"></a></h2><pre class="codeinput">X=[ones(size(x,1),1) x];    <span class="comment">% X=[N x P];</span>
+<span class="comment">% X=x;</span>
+y=y(:);
+
+N=size(y,1);             <span class="comment">%  N = number of observation</span>
+P = size(X,2);           <span class="comment">%  P=dimention of features including intercept.</span>
+Y = accumarray({(1:N)' y},1);    <span class="comment">% Make Y matrix with indicators</span>
+K = size(Y,2);            <span class="comment">%  K = number of class</span>
+W=0.01*ones(P,K);          <span class="comment">% Initialize weights .....    w = [ P x  K]</span>
+<span class="comment">% W=rand(P,K);            % Initialize weights .....    w = [ P x  K]</span>
+old_weights=W;
+lambda1=param(1);   <span class="comment">% regularization parameter (L1)</span>
+lambda2=param(2);   <span class="comment">% regularization parameter (L2)</span>
+</pre><pre class="codeoutput">Input argument "x" is undefined.
+
+Error in ==&gt; Sparse_MNL_Regression at 39
+X=[ones(size(x,1),1) x];    % X=[N x P];
+</pre><h2>Precompute B matrix  etc<a name="4"></a></h2><pre class="codeinput">B=X'*X;
+<span class="comment">%  We need only diagonal elements of this matrix.....</span>
+<span class="comment">%  B = Lower bound of Hessian...</span>
+B=-0.5*((K-1)/K)*diag(B);      <span class="comment">% B=[P x 1]  ( feature dim x 1)</span>
+
+XY=X'*Y;          <span class="comment">% [P x K]     ( K is number of Class)</span>
+Xw = X*W;       <span class="comment">% [N x K]</span>
+E=1/K.*ones(N,K);    <span class="comment">% [N x K]</span>
+S=sum(E,2);    <span class="comment">% [N x 1];</span>
+<span class="comment">%  NOTE:   W = [Dimension x Class]  :</span>
+</pre><h2>Main iteration {Component wise} ................................<a name="5"></a></h2><pre class="codeinput">iter=0;
+tol=10^-3;
+maxiter=10^4;
+
+<span class="keyword">while</span> iter&lt;=maxiter
+    iter=iter+1;
+    <span class="keyword">for</span> i=1:P   <span class="comment">% Loop over feature dimension...</span>
+        <span class="keyword">for</span> k=1:K   <span class="comment">% Loop over class...</span>
+
+                oldW=W(i,k);
+                <span class="keyword">if</span> oldW~=0
+                    pp=E(:,k)./S;
+                    a=X(:,i)'*pp;
+                    b=XY(i,k);
+
+                    <span class="comment">% Compute gradient...</span>
+                    grad=b-a;
+
+                    <span class="comment">% Update weights...</span>
+                    newW=(oldW*B(i)/(B(i)-lambda2))-(grad/(B(i)-lambda2));
+
+                    <span class="comment">% Compute thresholds ...</span>
+                    thres1=-lambda1/(B(i)-lambda2);
+
+                    <span class="comment">% Aplly soft thresholding ....</span>
+                    newW=soft_threshold(newW, thres1);
+
+                    <span class="comment">% Update E and S for next iteration.</span>
+                    <span class="keyword">if</span> newW ~= oldW
+                          Xw(:,k)=Xw(:,k)+X(:,i)*(newW-oldW);
+                          Enew=exp(Xw(:,k));
+                          S=S+(Enew-E(:,k));
+                          E(:,k)=Enew;
+                          W(i,k)=newW;
+                    <span class="keyword">end</span>
+
+<span class="comment">%                     if newW-oldW)~=0</span>
+<span class="comment">%                         W(i,k)=newW;  % Component wise update...</span>
+<span class="comment">%                          tXw(:,k)=X(:,i)* newW;  % [N x1];</span>
+<span class="comment">%                         E(:,k)=exp(Xw(:,k));      % [N x1]</span>
+<span class="comment">%                         S=sum(E,2);</span>
+<span class="comment">%                     end</span>
+
+            <span class="keyword">end</span>
+        <span class="keyword">end</span>
+    <span class="keyword">end</span>
+
+    <span class="keyword">if</span> norm(W-old_weights)&lt;tol
+<span class="comment">%          fprintf('%2.0f  iteration required.   \n',iter);</span>
+        <span class="keyword">break</span>
+    <span class="keyword">elseif</span> norm(W-old_weights)&gt;=tol  &amp;&amp; iter&lt;maxiter
+        old_weights=W;
+    <span class="keyword">elseif</span> norm(W-old_weights)&gt;=tol  &amp;&amp; iter==maxiter
+        error(<span class="string">' iteration not converged......'</span>);
+    <span class="keyword">end</span>
+<span class="keyword">end</span>
+</pre><pre class="codeinput">tprob=exp(X*W);
+prob=tprob./repmat(sum(tprob,2),[1 K]);
+</pre><h2>likelihood<a name="7"></a></h2><pre class="codeinput">loglik=sum(sum(log(prob).*Y));
+</pre><p class="footer"><br>
+      Published with MATLAB&reg; 7.10<br></p></div><!--
+##### SOURCE BEGIN #####
+function [prob,W, loglik]=Sparse_MNL_Regression(x,y,param)
+%%  Sparse multinomial logistic regression 
+%       < Hybrid (L1 and L2 ) regularization >
+%
+%  [ INPUTS ]:
+%  X is an N-by-P design matrix:
+%  Y is an N-by-1 vecot of response: (1~K)
+%  r : regularization parametger
+%           N: number of constraint (observation)
+%           P: input feature dimension
+%
+%
+%  [ Outputs ]:
+% prob: predicted probability
+% W:   Weights matrix
+%
+%
+%
+%  [ References] : 
+%         Krishnapurum  et.al.,    IEEE pattern anal & Machine intell (2005) 
+%         Ryali et.al.,   Neuroimage (2010)
+%         Le Cessie ;  J. R. Stat. Soc. C (1992)
+%         G. Fort;       Bioinformatics (2005)
+%         P. Green;   J. R. Stat. Soc. B (1984)
+%         L. Shen;     IEEE/ACM. Comp. Biol. Bioinform. (2005)
+%         J. Zhu;        Biostatistics (2004)
+%         M. Park and Hastie;   Biostatistics (2008) 9,1, pp30-50
+%         Cessie, S.;   Appl.Statist. (1992) 41, 191-201
+%         Bull: 2002 ;   Comp stat and  Data analysis
+%         Fox : Applied regression analysis and generalized linear models
+%         (2008)
+%         Bohning:   Ann.Inst. Statist. Math.  (1992) vol.44,  pp197-200
+%         Cawlay, et.al,   Advances in neural information (2007) 
+
+%          H.Oya (2010)
+
+%%  Setting up the initial variables
+
+X=[ones(size(x,1),1) x];    % X=[N x P];
+% X=x;
+y=y(:);
+
+N=size(y,1);             %  N = number of observation
+P = size(X,2);           %  P=dimention of features including intercept.
+Y = accumarray({(1:N)' y},1);    % Make Y matrix with indicators
+K = size(Y,2);            %  K = number of class
+W=0.01*ones(P,K);          % Initialize weights .....    w = [ P x  K]
+% W=rand(P,K);            % Initialize weights .....    w = [ P x  K]
+old_weights=W;
+lambda1=param(1);   % regularization parameter (L1)
+lambda2=param(2);   % regularization parameter (L2)
+
+%%   Precompute B matrix  etc
+B=X'*X;
+%  We need only diagonal elements of this matrix.....
+%  B = Lower bound of Hessian...
+B=-0.5*((K-1)/K)*diag(B);      % B=[P x 1]  ( feature dim x 1) 
+
+XY=X'*Y;          % [P x K]     ( K is number of Class)
+Xw = X*W;       % [N x K]
+E=1/K.*ones(N,K);    % [N x K]
+S=sum(E,2);    % [N x 1];
+%  NOTE:   W = [Dimension x Class]  :
+
+%% Main iteration {Component wise} ................................
+iter=0;
+tol=10^-3;
+maxiter=10^4;
+
+while iter<=maxiter
+    iter=iter+1;
+    for i=1:P   % Loop over feature dimension...
+        for k=1:K   % Loop over class... 
+
+                oldW=W(i,k);
+                if oldW~=0
+                    pp=E(:,k)./S;
+                    a=X(:,i)'*pp;
+                    b=XY(i,k);
+
+                    % Compute gradient...
+                    grad=b-a;
+
+                    % Update weights...
+                    newW=(oldW*B(i)/(B(i)-lambda2))-(grad/(B(i)-lambda2));
+
+                    % Compute thresholds ... 
+                    thres1=-lambda1/(B(i)-lambda2);
+
+                    % Aplly soft thresholding ....
+                    newW=soft_threshold(newW, thres1);
+                    
+                    % Update E and S for next iteration.
+                    if newW ~= oldW
+                          Xw(:,k)=Xw(:,k)+X(:,i)*(newW-oldW);
+                          Enew=exp(Xw(:,k));
+                          S=S+(Enew-E(:,k));
+                          E(:,k)=Enew;  
+                          W(i,k)=newW;          
+                    end
+                    
+%                     if newW-oldW)~=0
+%                         W(i,k)=newW;  % Component wise update...
+%                          tXw(:,k)=X(:,i)* newW;  % [N x1];
+%                         E(:,k)=exp(Xw(:,k));      % [N x1]
+%                         S=sum(E,2);
+%                     end
+
+            end
+        end
+    end
+    
+    if norm(W-old_weights)<tol
+%          fprintf('%2.0f  iteration required.   \n',iter);
+        break
+    elseif norm(W-old_weights)>=tol  && iter<maxiter
+        old_weights=W;
+    elseif norm(W-old_weights)>=tol  && iter==maxiter
+        error(' iteration not converged......');
+    end
+end
+        
+ %%
+tprob=exp(X*W);
+prob=tprob./repmat(sum(tprob,2),[1 K]);
+
+%% likelihood
+loglik=sum(sum(log(prob).*Y));
+
+        
+##### SOURCE END #####
+--></body></html>

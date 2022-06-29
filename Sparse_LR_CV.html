@@ -1,0 +1,170 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   <!--
+This HTML is auto-generated from an M-file.
+To make changes, update the M-file and republish this document.
+      --><title>Sparse_LR_CV</title><meta name="generator" content="MATLAB 7.10"><meta name="date" content="2011-01-10"><meta name="m-file" content="Sparse_LR_CV"><style type="text/css">
+
+body {
+  background-color: white;
+  margin:10px;
+}
+
+h1 {
+  color: #990000; 
+  font-size: x-large;
+}
+
+h2 {
+  color: #990000;
+  font-size: medium;
+}
+
+/* Make the text shrink to fit narrow windows, but not stretch too far in 
+wide windows. */ 
+p,h1,h2,div.content div {
+  max-width: 600px;
+  /* Hack for IE6 */
+  width: auto !important; width: 600px;
+}
+
+pre.codeinput {
+  background: #EEEEEE;
+  padding: 10px;
+}
+@media print {
+  pre.codeinput {word-wrap:break-word; width:100%;}
+} 
+
+span.keyword {color: #0000FF}
+span.comment {color: #228B22}
+span.string {color: #A020F0}
+span.untermstring {color: #B20000}
+span.syscmd {color: #B28C00}
+
+pre.codeoutput {
+  color: #666666;
+  padding: 10px;
+}
+
+pre.error {
+  color: red;
+}
+
+p.footer {
+  text-align: right;
+  font-size: xx-small;
+  font-weight: lighter;
+  font-style: italic;
+  color: gray;
+}
+
+  </style></head><body><div class="content"><h2>Contents</h2><div><ul><li><a href="#3">N-fold CV----------------------------------------</a></li></ul></div><pre class="codeinput"><span class="keyword">function</span> [W, ac,prob ] = Sparse_LR_CV(X,T,param)
+</pre><pre class="codeinput"><span class="comment">%</span>
+<span class="comment">%   ac:  N-fCV accuracy;</span>
+<span class="comment">%   T={1,2}</span>
+</pre><h2>N-fold CV----------------------------------------<a name="3"></a></h2><p>Numkber of N-f CV</p><pre class="codeinput">iter=2;
+<span class="comment">% Number of fold .......</span>
+N=5;
+xl=size(X,1);
+L=floor(xl/N);
+prob=[]; W=[]; newT=[] ;
+i=unique(T);
+K = length(i);             <span class="comment">%  K = number of class</span>
+j=0;
+<span class="keyword">for</span> m=1:iter
+    <span class="comment">% Shuffle trials .......</span>
+    RA=randperm(xl);
+    <span class="comment">% Shuffled data sets .......</span>
+    XE=X(RA,:);
+    TE=T(RA);
+        <span class="comment">% /////////////////     Loop over splits    ///////////////////%</span>
+        <span class="keyword">for</span> k=1:N
+            j=j+1;
+            <span class="comment">% Devide traials into test- and training trials ...</span>
+            <span class="keyword">if</span> k~=N
+                 Te=(k-1)*L+1:L*k;
+                 Train=setdiff([1:xl],Te);
+            <span class="keyword">elseif</span> k==N
+                 Te=(k-1)*L+1:xl;
+                 Train=setdiff([1:xl],Te);
+            <span class="keyword">end</span>
+
+            <span class="comment">% Fit the model.......</span>
+            [temprob,W(:,:,j), loglik]=Sparse_MNL_Regression(XE(Train,:),TE(Train), [param(1) param(2)]);
+
+            <span class="comment">% Evaluate Test data points....</span>
+            tprob=exp([ones(length(Te),1) XE(Te,:)]*W(:,:,j));
+            prob= [prob ; tprob./repmat(sum(tprob,2),[1 K])];
+            newT=[newT; TE(Te)];
+        <span class="keyword">end</span>
+<span class="keyword">end</span>
+
+f=find(newT(:,1)==1);
+f2=find(newT(:,1)==2);
+IND=zeros(length(T),1);   IND(f)=1; IND(f2)=-1;
+p=sign(prob(:,1)-0.5);
+ac=100*length(find(IND.*p==1))/length(newT);
+</pre><pre class="codeoutput">Input argument "X" is undefined.
+
+Error in ==&gt; Sparse_LR_CV at 10
+xl=size(X,1);  
+</pre><p class="footer"><br>
+      Published with MATLAB&reg; 7.10<br></p></div><!--
+##### SOURCE BEGIN #####
+function [W, ac,prob ] = Sparse_LR_CV(X,T,param)
+%
+%   ac:  N-fCV accuracy;
+%   T={1,2}
+%% N-fold CVREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH
+% Numkber of N-f CV
+iter=2;
+% Number of fold .......
+N=5;    
+xl=size(X,1);  
+L=floor(xl/N); 
+prob=[]; W=[]; newT=[] ; 
+i=unique(T);
+K = length(i);             %  K = number of class
+j=0;
+for m=1:iter
+    % Shuffle trials .......
+    RA=randperm(xl);
+    % Shuffled data sets .......
+    XE=X(RA,:);
+    TE=T(RA);
+        % /////////////////     Loop over splits    ///////////////////%
+        for k=1:N
+            j=j+1;
+            % Devide traials into test- and training trials ...
+            if k~=N
+                 Te=(k-1)*L+1:L*k; 
+                 Train=setdiff([1:xl],Te);
+            elseif k==N
+                 Te=(k-1)*L+1:xl;
+                 Train=setdiff([1:xl],Te);
+            end
+
+            % Fit the model.......
+            [temprob,W(:,:,j), loglik]=Sparse_MNL_Regression(XE(Train,:),TE(Train), [param(1) param(2)]);
+
+            % Evaluate Test data points....
+            tprob=exp([ones(length(Te),1) XE(Te,:)]*W(:,:,j)); 
+            prob= [prob ; tprob./repmat(sum(tprob,2),[1 K])];
+            newT=[newT; TE(Te)];
+        end
+end
+
+f=find(newT(:,1)==1);
+f2=find(newT(:,1)==2);
+IND=zeros(length(T),1);   IND(f)=1; IND(f2)=-1;
+p=sign(prob(:,1)-0.5);
+ac=100*length(find(IND.*p==1))/length(newT);
+%%
+
+  
+##### SOURCE END #####
+--></body></html>

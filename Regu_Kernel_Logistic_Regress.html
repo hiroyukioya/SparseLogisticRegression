@@ -1,0 +1,468 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   <!--
+This HTML is auto-generated from an M-file.
+To make changes, update the M-file and republish this document.
+      --><title>Regu_Kernel_Logistic_Regress</title><meta name="generator" content="MATLAB 7.10"><meta name="date" content="2010-12-18"><meta name="m-file" content="Regu_Kernel_Logistic_Regress"><style type="text/css">
+
+body {
+  background-color: white;
+  margin:10px;
+}
+
+h1 {
+  color: #990000; 
+  font-size: x-large;
+}
+
+h2 {
+  color: #990000;
+  font-size: medium;
+}
+
+/* Make the text shrink to fit narrow windows, but not stretch too far in 
+wide windows. */ 
+p,h1,h2,div.content div {
+  max-width: 600px;
+  /* Hack for IE6 */
+  width: auto !important; width: 600px;
+}
+
+pre.codeinput {
+  background: #EEEEEE;
+  padding: 10px;
+}
+@media print {
+  pre.codeinput {word-wrap:break-word; width:100%;}
+} 
+
+span.keyword {color: #0000FF}
+span.comment {color: #228B22}
+span.string {color: #A020F0}
+span.untermstring {color: #B20000}
+span.syscmd {color: #B28C00}
+
+pre.codeoutput {
+  color: #666666;
+  padding: 10px;
+}
+
+pre.error {
+  color: red;
+}
+
+p.footer {
+  text-align: right;
+  font-size: xx-small;
+  font-weight: lighter;
+  font-style: italic;
+  color: gray;
+}
+
+  </style></head><body><div class="content"><h2>Contents</h2><div><ul><li><a href="#3">Initialize data matrices...</a></li><li><a href="#4">MAIN LOOP</a></li><li><a href="#5">LOO cross validation</a></li><li><a href="#8">Kernel matrix</a></li></ul></div><pre class="codeinput"><span class="keyword">function</span> [alpha, beta, pp, w, Z, lik, ac, K ] = Regu_Kernel_Logistic_Regress(X, T, kernel, ksigma, lambda)
+</pre><pre>/////////   Regularized Kernel Logistic Regression    /////////</pre><pre>Refs: M. Maalouf, et. al.,     Comput. Stat. Data. Anal (2011)
+          Cawley and Talbot    Mach. Learn. (2008) 71; 243-264
+          Zhu and Hastie         J. Comp. Graph. Stat. (2005), 14, 185-205</pre><pre>[ INPUTS ]
+   X = input data [ n x p ]  (n=observations, p=dimension)
+   T = target (response) vector [ n x1 ] (Binary)
+   kernel = "linear", "rbf" or "polynomial"
+   ksigma= kernel parameter for non-linear kernel
+       if kernel="polynomial" , specify scaling parameter ksigma(2) .
+                       e.x., ksigma=[3 2] ..... degree of poly=3
+                       scaling .........   paramete=2
+   lambda= inverse of regularization parameter (scalar)
+               small lambda --&gt; strong regularization</pre><pre>[OUTPUTS]
+   alpha, beta:  Coefficients
+   pp: LOO estimate of posterior probability
+   w:  Primal space weights
+   Z: LOO outputs(eta)
+   lik:  Negative log likelihood
+   p: trained data p</pre><pre class="codeinput"><span class="comment">%                                                 H.Oya (2010)</span>
+</pre><h2>Initialize data matrices...<a name="3"></a></h2><pre class="codeinput">T=T(:);          <span class="comment">%T is  a target vector</span>
+[n,p]=size(X);
+[c,d]=size(T);
+
+<span class="keyword">if</span> n~=c;
+    error(<span class="string">'X and Y matrices must have the same number of rows.....'</span>)
+<span class="keyword">end</span>
+
+<span class="comment">% Select kernel ...............</span>
+o=strncmpi(kernel,<span class="string">'rbf'</span>,3);
+o3=strncmpi(kernel,<span class="string">'gauss'</span>,4);
+o1=strncmpi(kernel,<span class="string">'polynomial'</span>,4);
+o2=strncmpi(kernel,<span class="string">'linear'</span>,3);
+
+
+<span class="comment">% Construct Kernel Matrix --------------</span>
+<span class="keyword">if</span> o2==1      <span class="comment">% Liner kernel</span>
+    mode=1;
+    K=X*X';
+<span class="keyword">elseif</span> o==1 | o3==1     <span class="comment">% RBF kernel</span>
+    mode=2;
+    [K]=KernelMatrix(X,ksigma,<span class="string">'gaus'</span>);
+<span class="keyword">elseif</span> o1==1         <span class="comment">% Polynomial kernel</span>
+    mode=3;
+    [K]=KernelMatrix(X,ksigma,<span class="string">'poly'</span>);
+<span class="keyword">end</span>
+</pre><pre class="codeoutput">Input argument "T" is undefined.
+
+Error in ==&gt; Regu_Kernel_Logistic_Regress at 32
+T=T(:);          %T is  a target vector
+</pre><h2>MAIN LOOP<a name="4"></a></h2><pre class="codeinput">maxiter=50;
+alpha=zeros(n,1);    <span class="comment">% [n x 1]</span>
+eta=zeros(n,1);         <span class="comment">% [n x 1]</span>
+mu=exp(eta)./(1+exp(eta));
+y= exp(eta)./(1+exp(eta)).^2;    <span class="comment">% = p*(1-p)</span>
+old_lik= 10^8;
+tol=10^-6;
+
+<span class="comment">%--------- Cowley's  loop (Efficient IRWLS) ---------</span>
+<span class="keyword">for</span> i=1:maxiter
+
+    <span class="comment">% Weighting matrix</span>
+    W=y;      <span class="comment">% [n x 1]</span>
+    IW = diag(1./W);    <span class="comment">% [n x n]</span>
+
+    <span class="comment">% Adjusted psudo-response</span>
+    z = eta+(T-mu)./W;    <span class="comment">% [n x 1]</span>
+
+    <span class="comment">% Construct M</span>
+    M=K+lambda*IW;    <span class="comment">% [ n x n]</span>
+    old_M=M;
+    <span class="comment">% Cholesky factorization</span>
+    R=chol(M) ;
+    <span class="comment">% Solve first equation</span>
+    zeta=R\(R'\ones(n,1));     <span class="comment">% [n x n]</span>
+    <span class="comment">% Solve second equation</span>
+    xi=R\(R'\z);
+    <span class="comment">% Calculate beta and alpha</span>
+    new_beta=sum(xi)/sum(zeta);
+    new_alpha=xi-zeta*new_beta;
+
+    <span class="comment">% Compute eta</span>
+    eta = K*new_alpha+new_beta;
+    <span class="comment">% Compute mu</span>
+    mu = exp(eta)./(1+exp(eta));
+    <span class="comment">% Compute y , this is needed for weighting (W)......</span>
+    <span class="comment">% Below is equal to y*(1-y)</span>
+    y= exp(eta)./(1+exp(eta)).^2;
+
+    <span class="comment">% Negative log-likelihood (cross-entropy)</span>
+    e1 = -(T.*eta-log(1+exp(eta)));
+    lik=(0.5*lambda*alpha'*K*alpha)+sum(e1);
+
+    <span class="comment">% Evaluate the stopping criterion</span>
+     D=(old_lik-lik);
+<span class="comment">%       D=(alpha-new_alpha);</span>
+<span class="comment">%       figure(1);plot(i,lik,'s');hold on</span>
+
+    <span class="keyword">if</span> D&lt;tol &amp; i&lt;=maxiter
+<span class="comment">%           fprintf(' Iterarion for convergence   %2.0f :  ',i-1);</span>
+          alpha=new_alpha;
+          beta=new_beta;
+          lik=old_lik;
+          p=old_y;
+          M=old_M;
+        <span class="keyword">break</span>
+    <span class="keyword">elseif</span> D&gt;=tol &amp; i&gt;=maxiter
+        error(<span class="string">' Iteration did not converge .....'</span>)
+    <span class="keyword">end</span>
+    old_y=y;
+    old_lik=lik;
+    alpha=new_alpha;  <span class="comment">% Update alpha (Dual-space weights)</span>
+    i=i+1;
+<span class="keyword">end</span>
+
+<span class="comment">% Feature-space weights (Valid for linear kernel case)</span>
+w = alpha'*X;
+</pre><h2>LOO cross validation<a name="5"></a></h2><pre class="codeinput"><span class="comment">%--------------------</span>
+iR = inv(R);
+cii=sum(iR.^2,2)-zeta.^2/sum(zeta);
+<span class="comment">% LOO outputs</span>
+Z=z-alpha./cii;
+<span class="comment">% LOO post. prob.</span>
+pp=exp(Z)./(1+exp(Z));
+
+<span class="comment">% LOO regularized negative log-likelihood (cross-entropy).</span>
+<span class="comment">%          &lt;&lt;&lt;--- log(1+exp(-tz))=log(exp(1+tz))-tz;</span>
+e1 = -(T.*Z-log(1+exp(Z)));
+lik=(0.5*lambda*alpha'*K*alpha)+sum(e1)/2;
+
+ip=sign(pp-0.5);
+tt=T; f=find(tt==0); tt(f)=-1;
+L=find(tt.*ip==1);
+<span class="comment">% LOO accuracy</span>
+ac=length(L)/length(tt);
+<span class="comment">% fprintf(' LOO accuracy   %2.4f \n',ac);</span>
+</pre><pre class="codeinput"><span class="keyword">function</span> [K,D,CK]=KernelMatrix(data,sigma,kernel)
+</pre><h2>Kernel matrix<a name="8"></a></h2><pre>Compute kernel matrix using Gaussian kernel with sigma value</pre><pre class="codeinput"><span class="keyword">if</span> sigma&lt;=0;
+    error(<span class="string">'       sigma must be positive     '</span>);
+<span class="keyword">end</span>
+
+[a,b]=size(data);
+K=zeros(a,a);
+
+o=strncmpi(kernel,<span class="string">'gaussian'</span>,4);
+o1=strncmpi(kernel,<span class="string">'polynomial'</span>,4);
+
+<span class="keyword">if</span> (o==1) &amp; (o1==0)
+    <span class="keyword">for</span> n=1:a
+            <span class="keyword">for</span> m=n:a
+                  [K(n,m)]=gaussian_kernel_function(data,n,m,sigma);
+            <span class="keyword">end</span>
+    <span class="keyword">end</span>
+<span class="keyword">elseif</span> (o1==1) &amp; (o==0)
+    <span class="keyword">for</span> n=1:a
+            <span class="keyword">for</span> m=n:a
+                  [K(n,m)]=polynomial_kernel_function(data,n,m,sigma);
+            <span class="keyword">end</span>
+    <span class="keyword">end</span>
+<span class="keyword">end</span>
+
+<span class="comment">% Kernel matrix</span>
+<span class="keyword">for</span> n=1:a
+      m=n:a;
+      K(m,n)=K(n,m)';
+<span class="keyword">end</span>
+
+<span class="comment">% Normalize</span>
+D=diag(1./sqrt(diag(K)));
+NK=D*K*D;
+
+<span class="comment">%Centering</span>
+d=sum(K)/a;
+e=sum(d)/a;
+J=ones(a,1)*d;
+CK=K-J-J'+e*ones(a,a);
+</pre><pre class="codeinput"><span class="keyword">function</span> [a]=gaussian_kernel_function(data,ind1,ind2,sigma)
+</pre><pre class="codeinput">k1=dot(data(ind1,:),data(ind1,:));
+k2=dot(data(ind2,:),data(ind2,:));
+kb=dot(data(ind1,:),data(ind2,:));
+
+<span class="comment">% Gaussian Kernel Function</span>
+a=exp(-(k1+k2-2*kb)/(2*sigma(1)^2));
+</pre><pre class="codeinput"><span class="keyword">function</span> [a]=polynomial_kernel_function(data,ind1,ind2,sigma)
+eta=1/(sigma(2)^2);
+kb=data(ind1,:)*eta*data(ind2,:)';
+<span class="comment">% inhomogenous polynomial kernel of degree sigma</span>
+a=(kb+1).^sigma(1);
+</pre><p class="footer"><br>
+      Published with MATLAB&reg; 7.10<br></p></div><!--
+##### SOURCE BEGIN #####
+function [alpha, beta, pp, w, Z, lik, ac, K ] = Regu_Kernel_Logistic_Regress(X, T, kernel, ksigma, lambda)
+%%
+%  /////////   Regularized Kernel Logistic Regression    /////////
+%
+%  Refs: M. Maalouf, et. al.,     Comput. Stat. Data. Anal (2011)
+%            Cawley and Talbot    Mach. Learn. (2008) 71; 243-264    
+%            Zhu and Hastie         J. Comp. Graph. Stat. (2005), 14, 185-205 
+%             
+%
+%  [ INPUTS ]
+%     X = input data [ n x p ]  (n=observations, p=dimension)
+%     T = target (response) vector [ n x1 ] (Binary)
+%     kernel = "linear", "rbf" or "polynomial"
+%     ksigma= kernel parameter for non-linear kernel 
+%         if kernel="polynomial" , specify scaling parameter ksigma(2) .
+%                         e.x., ksigma=[3 2] ..... degree of poly=3
+%                         scaling .........   paramete=2
+%     lambda= inverse of regularization parameter (scalar)
+%                 small lambda REPLACE_WITH_DASH_DASH> strong regularization 
+%
+%  [OUTPUTS]
+%     alpha, beta:  Coefficients
+%     pp: LOO estimate of posterior probability
+%     w:  Primal space weights
+%     Z: LOO outputs(eta)
+%     lik:  Negative log likelihood
+%     p: trained data p
+
+%                                                 H.Oya (2010)
+%%   Initialize data matrices...
+
+T=T(:);          %T is  a target vector
+[n,p]=size(X);
+[c,d]=size(T);
+
+if n~=c;
+    error('X and Y matrices must have the same number of rows.....')
+end
+
+% Select kernel ...............
+o=strncmpi(kernel,'rbf',3);
+o3=strncmpi(kernel,'gauss',4);
+o1=strncmpi(kernel,'polynomial',4);
+o2=strncmpi(kernel,'linear',3);
+
+
+% Construct Kernel Matrix REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH
+if o2==1      % Liner kernel
+    mode=1;
+    K=X*X';
+elseif o==1 | o3==1     % RBF kernel
+    mode=2;
+    [K]=KernelMatrix(X,ksigma,'gaus');
+elseif o1==1         % Polynomial kernel
+    mode=3;
+    [K]=KernelMatrix(X,ksigma,'poly');
+end
+
+%% MAIN LOOP
+maxiter=50;
+alpha=zeros(n,1);    % [n x 1]
+eta=zeros(n,1);         % [n x 1]
+mu=exp(eta)./(1+exp(eta));
+y= exp(eta)./(1+exp(eta)).^2;    % = p*(1-p)
+old_lik= 10^8;
+tol=10^-6;
+
+%REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH- Cowley's  loop (Efficient IRWLS) REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH-
+for i=1:maxiter
+
+    % Weighting matrix
+    W=y;      % [n x 1]
+    IW = diag(1./W);    % [n x n]
+    
+    % Adjusted psudo-response
+    z = eta+(T-mu)./W;    % [n x 1]
+
+    % Construct M
+    M=K+lambda*IW;    % [ n x n]
+    old_M=M;
+    % Cholesky factorization
+    R=chol(M) ;
+    % Solve first equation
+    zeta=R\(R'\ones(n,1));     % [n x n]
+    % Solve second equation
+    xi=R\(R'\z);
+    % Calculate beta and alpha
+    new_beta=sum(xi)/sum(zeta);
+    new_alpha=xi-zeta*new_beta;
+    
+    % Compute eta
+    eta = K*new_alpha+new_beta;
+    % Compute mu
+    mu = exp(eta)./(1+exp(eta));
+    % Compute y , this is needed for weighting (W)......
+    % Below is equal to y*(1-y)
+    y= exp(eta)./(1+exp(eta)).^2;
+    
+    % Negative log-likelihood (cross-entropy)
+    e1 = -(T.*eta-log(1+exp(eta)));
+    lik=(0.5*lambda*alpha'*K*alpha)+sum(e1);
+    
+    % Evaluate the stopping criterion
+     D=(old_lik-lik);
+%       D=(alpha-new_alpha);
+%       figure(1);plot(i,lik,'s');hold on
+    
+    if D<tol & i<=maxiter
+%           fprintf(' Iterarion for convergence   %2.0f :  ',i-1);
+          alpha=new_alpha;
+          beta=new_beta;
+          lik=old_lik;
+          p=old_y;
+          M=old_M;
+        break
+    elseif D>=tol & i>=maxiter
+        error(' Iteration did not converge .....')
+    end
+    old_y=y;
+    old_lik=lik;
+    alpha=new_alpha;  % Update alpha (Dual-space weights)
+    i=i+1;
+end
+
+% Feature-space weights (Valid for linear kernel case) 
+w = alpha'*X;
+
+%% LOO cross validation
+
+%REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH 
+iR = inv(R);
+cii=sum(iR.^2,2)-zeta.^2/sum(zeta);
+% LOO outputs
+Z=z-alpha./cii;
+% LOO post. prob.
+pp=exp(Z)./(1+exp(Z));   
+
+% LOO regularized negative log-likelihood (cross-entropy).
+%          <<<REPLACE_WITH_DASH_DASH- log(1+exp(-tz))=log(exp(1+tz))-tz;
+e1 = -(T.*Z-log(1+exp(Z)));
+lik=(0.5*lambda*alpha'*K*alpha)+sum(e1)/2;
+
+ip=sign(pp-0.5);
+tt=T; f=find(tt==0); tt(f)=-1;
+L=find(tt.*ip==1);
+% LOO accuracy
+ac=length(L)/length(tt);
+% fprintf(' LOO accuracy   %2.4f \n',ac);
+
+
+%%
+function [K,D,CK]=KernelMatrix(data,sigma,kernel)
+%%  Kernel matrix 
+%  Compute kernel matrix using Gaussian kernel with sigma value
+ 
+if sigma<=0;
+    error('       sigma must be positive     ');
+end
+
+[a,b]=size(data);
+K=zeros(a,a);
+
+o=strncmpi(kernel,'gaussian',4);
+o1=strncmpi(kernel,'polynomial',4);
+
+if (o==1) & (o1==0)
+    for n=1:a
+            for m=n:a
+                  [K(n,m)]=gaussian_kernel_function(data,n,m,sigma);
+            end
+    end
+elseif (o1==1) & (o==0)
+    for n=1:a
+            for m=n:a
+                  [K(n,m)]=polynomial_kernel_function(data,n,m,sigma);
+            end
+    end
+end
+    
+% Kernel matrix
+for n=1:a
+      m=n:a;
+      K(m,n)=K(n,m)';
+end
+
+% Normalize
+D=diag(1./sqrt(diag(K)));
+NK=D*K*D;
+
+%Centering
+d=sum(K)/a;
+e=sum(d)/a;
+J=ones(a,1)*d;
+CK=K-J-J'+e*ones(a,a);
+
+%%
+function [a]=gaussian_kernel_function(data,ind1,ind2,sigma)
+
+k1=dot(data(ind1,:),data(ind1,:));
+k2=dot(data(ind2,:),data(ind2,:));
+kb=dot(data(ind1,:),data(ind2,:));
+
+% Gaussian Kernel Function
+a=exp(-(k1+k2-2*kb)/(2*sigma(1)^2));
+
+%%
+function [a]=polynomial_kernel_function(data,ind1,ind2,sigma)
+eta=1/(sigma(2)^2); 
+kb=data(ind1,:)*eta*data(ind2,:)';
+% inhomogenous polynomial kernel of degree sigma
+a=(kb+1).^sigma(1);
+
+##### SOURCE END #####
+--></body></html>
